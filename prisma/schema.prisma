@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  TEACHER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum AuthProvider {
+  LOCAL
+  GOOGLE
+  FACEBOOK
+}
+
+model User {
+  id                  String        @id @default(uuid())
+  email               String?       @unique
+  phone               String?       @unique
+  passwordHash        String?
+  role                Role          @default(STUDENT)
+  provider            AuthProvider  @default(LOCAL)
+  providerId          String?
+
+  isEmailVerified     Boolean       @default(false)
+  isPhoneVerified     Boolean       @default(false)
+  isActive            Boolean       @default(true)
+
+  failedLoginAttempts Int           @default(0)
+  lockedUntil         DateTime?
+
+  twoFactorEnabled    Boolean       @default(false)
+  twoFactorSecret     String?
+
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  sessions            Session[]
+  refreshTokens       RefreshToken[]
+
+  @@index([email])
+  @@index([phone])
+  @@map("users")
+}
+
+model RefreshToken {
+  id          String    @id @default(uuid())
+  tokenHash   String    @unique
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  deviceId    String?
+  userAgent   String?
+  ipAddress   String?
+
+  isRevoked   Boolean   @default(false)
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
+  replacedBy  String?
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Session {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  deviceId    String
+  deviceName  String?
+  userAgent   String?
+  ipAddress   String?
+  isActive    Boolean   @default(true)
+
+  lastActiveAt DateTime @default(now())
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}

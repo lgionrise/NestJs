@@ -1,8 +1,8 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
-import helmet from 'helmet';
-import compression from 'compression';
-import cookieParser from 'cookie-parser';
+import * as helmet from 'helmet';
+import * as compression from 'compression';
+import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { WinstonModule } from 'nest-winston';
 import { winstonConfig } from './common/logger/winston.config';

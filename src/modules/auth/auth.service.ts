@@ -14,6 +14,7 @@ import { randomUUID, createHash } from 'crypto';
 import Redis from 'ioredis';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
+import { TwoFactorService } from './two-factor.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -44,6 +45,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly otpService: OtpService,
+    private readonly twoFactorService: TwoFactorService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.saltRounds = this.configService.get<number>('BCRYPT_SALT_ROUNDS', 12);
@@ -88,7 +90,7 @@ export class AuthService {
     return this.sanitizeUser(user);
   }
 
-  async login(dto: LoginDto, meta: DeviceMeta) {
+async login(dto: LoginDto, meta: DeviceMeta) {
     if (!dto.email && !dto.phone) {
       throw new BadRequestException('Either email or phone is required');
     }
@@ -131,11 +133,71 @@ export class AuthService {
       });
     }
 
-    const tokens = await this.generateTokenPair(user.id, user.email, user.phone, user.role);
+    if (user.twoFactorEnabled) {
+      const mfaToken = await this.jwtService.signAsync(
+        {
+          sub: user.id,
+          email: user.email ?? undefined,
+          phone: user.phone ?? undefined,
+          role: user.role,
+          type: 'mfa',
+        } as JwtPayload,
+        {
+          secret: this.configService.get<string>('JWT_ACCESS_SECRET'),
+          expiresIn: '5m',
+        },
+      );
 
+      return {
+        requiresTwoFactor: true,
+        mfaToken,
+        message: 'Please provide your two-factor authentication code to complete login',
+      };
+    }
+
+    const tokens = await this.generateTokenPair(user.id, user.email, user.phone, user.role);
     await this.createSession(user.id, dto.deviceId, meta);
 
     this.logger.log(`User logged in: ${user.id}`);
+
+    return {
+      requiresTwoFactor: false,
+      user: this.sanitizeUser(user),
+      ...tokens,
+    };
+  }
+
+  async verifyTwoFactorLogin(mfaToken: string, code: string, meta: DeviceMeta) {
+    let payload: JwtPayload;
+
+    try {
+      payload = await this.jwtService.verifyAsync<JwtPayload>(mfaToken, {
+        secret: this.configService.get<string>('JWT_ACCESS_SECRET'),
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired MFA session. Please log in again.');
+    }
+
+    if (payload.type !== 'mfa') {
+      throw new UnauthorizedException('Invalid token type');
+    }
+
+    const isValid = await this.twoFactorService.verifyTotpCode(payload.sub, code);
+
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid two-factor authentication code');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('User not found or inactive');
+    }
+
+    const tokens = await this.generateTokenPair(user.id, user.email, user.phone, user.role);
+    await this.createSession(user.id, meta.deviceId, meta);
+
+    this.logger.log(`User completed 2FA login: ${user.id}`);
 
     return {
       user: this.sanitizeUser(user),

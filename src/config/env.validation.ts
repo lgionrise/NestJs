@@ -11,6 +11,11 @@ export default Joi.object({
   JWT_REFRESH_SECRET: Joi.string().min(32).required(),
   JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
 
+  BREVO_API_KEY: Joi.string().required(),
+  BREVO_SENDER_EMAIL: Joi.string().email().required(),
+  BREVO_SENDER_NAME: Joi.string().default('LGIONRISE'),
+  OTP_EMAIL_PROVIDER: Joi.string().valid('brevo', 'console').default('brevo'),
+
   BCRYPT_SALT_ROUNDS: Joi.number().default(12),
 
   REDIS_URL: Joi.string().required(),

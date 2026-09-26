@@ -3,7 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { createHash, randomInt } from 'crypto';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
-import { OtpChannel, OtpPurpose } from './interfaces/otp-provider.interface';
+import { IOtpSender, OtpChannel, OtpPurpose } from './interfaces/otp-provider.interface';
+import { BrevoEmailProvider } from './providers/brevo-email.provider';
 import { ConsoleEmailProvider } from './providers/console-email.provider';
 import { ConsoleSmsProvider } from './providers/console-sms.provider';
 
@@ -15,13 +16,19 @@ const OTP_MAX_VERIFY_ATTEMPTS = 5;
 @Injectable()
 export class OtpService {
   private readonly logger = new Logger(OtpService.name);
+  private readonly emailProvider: IOtpSender;
 
   constructor(
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly configService: ConfigService,
-    private readonly emailProvider: ConsoleEmailProvider,
+    private readonly brevoEmailProvider: BrevoEmailProvider,
+    private readonly consoleEmailProvider: ConsoleEmailProvider,
     private readonly smsProvider: ConsoleSmsProvider,
-  ) {}
+  ) {
+    const providerChoice = this.configService.get<string>('OTP_EMAIL_PROVIDER', 'brevo');
+    this.emailProvider = providerChoice === 'console' ? this.consoleEmailProvider : this.brevoEmailProvider;
+    this.logger.log(`OTP email provider active: ${providerChoice}`);
+  }
 
   private buildKey(destination: string, purpose: OtpPurpose): string {
     return `otp:${purpose}:${destination}`;
@@ -96,11 +103,7 @@ export class OtpService {
     const submittedHash = this.hashOtp(submittedOtp);
 
     if (submittedHash !== storedHash) {
-      await this.redis
-        .multi()
-        .incr(attemptsKey)
-        .expire(attemptsKey, OTP_TTL_SECONDS)
-        .exec();
+      await this.redis.multi().incr(attemptsKey).expire(attemptsKey, OTP_TTL_SECONDS).exec();
       throw new BadRequestException('Invalid OTP');
     }
 

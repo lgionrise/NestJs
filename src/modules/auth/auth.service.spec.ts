@@ -185,6 +185,7 @@ describe('AuthService', () => {
         lockedUntil: null,
         failedLoginAttempts: 0,
         role: Role.STUDENT,
+        twoFactorEnabled: false,
       });
       jwtService.signAsync.mockResolvedValue('signed-token');
       jwtService.decode.mockReturnValue({ exp: Math.floor(Date.now() / 1000) + 3600 });
@@ -198,7 +199,11 @@ describe('AuthService', () => {
 
       expect(result).toHaveProperty('accessToken');
       expect(result).toHaveProperty('refreshToken');
-      expect(result.user).not.toHaveProperty('passwordHash');
+      expect(result.requiresTwoFactor).toBe(false);
+
+      if (!result.requiresTwoFactor) {
+        expect(result.user).not.toHaveProperty('passwordHash');
+      }
     });
   });
 

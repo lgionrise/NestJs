@@ -8,6 +8,7 @@ import { PrismaModule } from './common/prisma/prisma.module';
 import { RedisModule } from './common/redis/redis.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
+import { StudentModule } from './modules/student/student.module';
 import validationSchema from './config/env.validation';
 
 @Module({
@@ -29,6 +30,7 @@ import validationSchema from './config/env.validation';
     RedisModule,
     AuthModule,
     HealthModule,
+    StudentModule,
   ],
   providers: [
     {

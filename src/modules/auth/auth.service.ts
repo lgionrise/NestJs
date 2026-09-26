@@ -10,16 +10,21 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
-import { randomUUID } from 'crypto';
-import { createHash } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import Redis from 'ioredis';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { SendOtpDto } from './dto/send-otp.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { Role } from '@prisma/client';
+import { OtpService } from '../otp/otp.service';
+import { OtpChannel, OtpPurpose } from '../otp/interfaces/otp-provider.interface';
 
 interface DeviceMeta {
   deviceId?: string;
@@ -38,6 +43,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly otpService: OtpService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.saltRounds = this.configService.get<number>('BCRYPT_SALT_ROUNDS', 12);
@@ -101,9 +107,7 @@ export class AuthService {
     }
 
     if (user.lockedUntil && user.lockedUntil > new Date()) {
-      const minutesLeft = Math.ceil(
-        (user.lockedUntil.getTime() - Date.now()) / 60000,
-      );
+      const minutesLeft = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60000);
       throw new ForbiddenException(
         `Account is locked due to multiple failed attempts. Try again in ${minutesLeft} minute(s).`,
       );
@@ -175,9 +179,7 @@ export class AuthService {
 
     const tokenHash = this.hashToken(refreshToken);
 
-    const storedToken = await this.prisma.refreshToken.findUnique({
-      where: { tokenHash },
-    });
+    const storedToken = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
 
     if (!storedToken || storedToken.isRevoked || storedToken.expiresAt < new Date()) {
       if (storedToken?.isRevoked) {
@@ -200,9 +202,7 @@ export class AuthService {
       data: { isRevoked: true, revokedAt: new Date() },
     });
 
-    const tokens = await this.generateTokenPair(user.id, user.email, user.phone, user.role);
-
-    return tokens;
+    return this.generateTokenPair(user.id, user.email, user.phone, user.role);
   }
 
   async logout(userId: string, refreshToken?: string) {
@@ -218,10 +218,7 @@ export class AuthService {
 
   async logoutAllDevices(userId: string) {
     await this.revokeAllUserTokens(userId);
-    await this.prisma.session.updateMany({
-      where: { userId },
-      data: { isActive: false },
-    });
+    await this.prisma.session.updateMany({ where: { userId }, data: { isActive: false } });
     return { message: 'Logged out from all devices' };
   }
 
@@ -240,10 +237,7 @@ export class AuthService {
 
     const newHash = await bcrypt.hash(dto.newPassword, this.saltRounds);
 
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { passwordHash: newHash },
-    });
+    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash: newHash } });
 
     await this.revokeAllUserTokens(userId);
 
@@ -252,12 +246,114 @@ export class AuthService {
     return { message: 'Password changed successfully. Please log in again.' };
   }
 
-  private async generateTokenPair(
-    userId: string,
-    email: string | null,
-    phone: string | null,
-    role: Role,
-  ) {
+  // ─── OTP-DEPENDENT FLOWS ──────────────────────────────────────────────
+
+  async sendOtp(dto: SendOtpDto) {
+    const destination = dto.email ?? dto.phone;
+
+    if (!destination) {
+      throw new BadRequestException('Either email or phone is required');
+    }
+
+    if (
+      dto.purpose === OtpPurpose.PASSWORD_RESET ||
+      dto.purpose === OtpPurpose.EMAIL_VERIFICATION ||
+      dto.purpose === OtpPurpose.PHONE_VERIFICATION
+    ) {
+      const user = await this.prisma.user.findFirst({
+        where: {
+          OR: [dto.email ? { email: dto.email } : undefined, dto.phone ? { phone: dto.phone } : undefined].filter(
+            Boolean,
+          ) as any,
+        },
+      });
+
+      if (dto.purpose === OtpPurpose.PASSWORD_RESET && !user) {
+        // Do not reveal whether account exists — respond identically either way.
+        return { message: 'If an account exists, an OTP has been sent.', expiresInSeconds: 300 };
+      }
+    }
+
+    const channel = dto.email ? OtpChannel.EMAIL : OtpChannel.SMS;
+    return this.otpService.requestOtp(destination, channel, dto.purpose);
+  }
+
+  async verifyOtp(dto: VerifyOtpDto) {
+    const destination = dto.email ?? dto.phone;
+
+    if (!destination) {
+      throw new BadRequestException('Either email or phone is required');
+    }
+
+    await this.otpService.verifyOtp(destination, dto.purpose, dto.otp);
+
+    if (dto.purpose === OtpPurpose.EMAIL_VERIFICATION && dto.email) {
+      await this.prisma.user.updateMany({
+        where: { email: dto.email },
+        data: { isEmailVerified: true },
+      });
+    }
+
+    if (dto.purpose === OtpPurpose.PHONE_VERIFICATION && dto.phone) {
+      await this.prisma.user.updateMany({
+        where: { phone: dto.phone },
+        data: { isPhoneVerified: true },
+      });
+    }
+
+    return { message: 'OTP verified successfully' };
+  }
+
+  async forgotPassword(dto: ForgotPasswordDto) {
+    return this.sendOtp({
+      email: dto.email,
+      phone: dto.phone,
+      purpose: OtpPurpose.PASSWORD_RESET,
+    } as SendOtpDto);
+  }
+
+  async resetPassword(dto: ResetPasswordDto) {
+    const destination = dto.email ?? dto.phone;
+
+    if (!destination) {
+      throw new BadRequestException('Either email or phone is required');
+    }
+
+    await this.otpService.verifyOtp(destination, OtpPurpose.PASSWORD_RESET, dto.otp);
+
+    const user = await this.prisma.user.findFirst({
+      where: {
+        OR: [dto.email ? { email: dto.email } : undefined, dto.phone ? { phone: dto.phone } : undefined].filter(
+          Boolean,
+        ) as any,
+      },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Invalid request');
+    }
+
+    const newHash = await bcrypt.hash(dto.newPassword, this.saltRounds);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash: newHash,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      },
+    });
+
+    await this.revokeAllUserTokens(user.id);
+
+    this.logger.log(`Password reset via OTP for user: ${user.id}`);
+
+    return { message: 'Password reset successfully. Please log in with your new password.' };
+  }
+
+  // ─── TOKEN / SESSION HELPERS ──────────────────────────────────────────
+
+  private async generateTokenPair(userId: string, email: string | null, phone: string | null, role: Role) {
     const jti = randomUUID();
 
     const accessPayload: JwtPayload = {
@@ -306,9 +402,7 @@ export class AuthService {
     const finalDeviceId = deviceId ?? meta.deviceId ?? randomUUID();
 
     await this.prisma.session.upsert({
-      where: {
-        id: `${userId}_${finalDeviceId}`,
-      },
+      where: { id: `${userId}_${finalDeviceId}` },
       create: {
         id: `${userId}_${finalDeviceId}`,
         userId,

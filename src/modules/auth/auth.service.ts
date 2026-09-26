@@ -267,6 +267,22 @@ async login(dto: LoginDto, meta: DeviceMeta) {
     return this.generateTokenPair(user.id, user.email, user.phone, user.role);
   }
 
+  async disableTwoFactorWithPassword(userId: string, password: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+
+    if (!user || !user.passwordHash) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const matches = await bcrypt.compare(password, user.passwordHash);
+
+    if (!matches) {
+      throw new UnauthorizedException('Incorrect password');
+    }
+
+    return this.twoFactorService.disable(userId, '__PASSWORD_VERIFIED__');
+  }
+
   async logout(userId: string, refreshToken?: string) {
     if (refreshToken) {
       const tokenHash = this.hashToken(refreshToken);

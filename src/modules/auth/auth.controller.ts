@@ -16,6 +16,10 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { SendOtpDto } from './dto/send-otp.dto';
+import { TwoFactorService } from './two-factor.service';
+import { TwoFactorVerifySetupDto } from './dto/two-factor-setup.dto';
+import { TwoFactorDisableDto } from './dto/two-factor-disable.dto';
+import { TwoFactorVerifyLoginDto } from './dto/two-factor-verify-login.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
@@ -26,7 +30,10 @@ import { AuthenticatedUser } from './interfaces/jwt-payload.interface';
 
 @Controller({ path: 'auth', version: '1' })
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly twoFactorService: TwoFactorService,
+  ) {}
 
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60000 } })
@@ -124,6 +131,56 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async resetPassword(@Body() dto: ResetPasswordDto) {
     const result = await this.authService.resetPassword(dto);
+    return { success: true, data: result };
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 8, ttl: 60000 } })
+  @Post('2fa/verify-login')
+  @HttpCode(HttpStatus.OK)
+  async verifyTwoFactorLogin(@Body() dto: TwoFactorVerifyLoginDto, @Req() req: Request) {
+    const meta = {
+      userAgent: req.headers['user-agent'],
+      ipAddress: req.ip,
+    };
+    const result = await this.authService.verifyTwoFactorLogin(dto.mfaToken, dto.code, meta);
+    return { success: true, data: result };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('2fa/setup')
+  @HttpCode(HttpStatus.OK)
+  async setupTwoFactor(@CurrentUser() user: AuthenticatedUser) {
+    const result = await this.twoFactorService.generateSetup(user.id, user.email);
+    return { success: true, data: result };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('2fa/confirm')
+  @HttpCode(HttpStatus.OK)
+  async confirmTwoFactor(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: TwoFactorVerifySetupDto,
+  ) {
+    const result = await this.twoFactorService.confirmSetup(user.id, dto.code);
+    return { success: true, data: result };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('2fa/disable')
+  @HttpCode(HttpStatus.OK)
+  async disableTwoFactor(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: TwoFactorDisableDto,
+  ) {
+    // Verify current password before allowing 2FA disable (defense in depth)
+    await this.authService.changePassword(user.id, {
+      currentPassword: dto.password,
+      newPassword: dto.password,
+    }).catch(() => {
+      throw new UnauthorizedException('Incorrect password');
+    });
+    const result = await this.twoFactorService.disable(user.id, '');
     return { success: true, data: result };
   }
 }

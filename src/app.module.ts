@@ -7,6 +7,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { RedisModule } from './common/redis/redis.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { HealthModule } from './modules/health/health.module';
 import validationSchema from './config/env.validation';
 
 @Module({
@@ -27,6 +28,7 @@ import validationSchema from './config/env.validation';
     PrismaModule,
     RedisModule,
     AuthModule,
+    HealthModule,
   ],
   providers: [
     {

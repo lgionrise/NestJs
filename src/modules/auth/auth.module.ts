@@ -4,6 +4,7 @@ import { PassportModule } from '@nestjs/passport';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
+import { TwoFactorService } from './two-factor.service';
 import { JwtAccessStrategy } from './strategies/jwt-access.strategy';
 import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -15,6 +16,7 @@ import { OtpModule } from '../otp/otp.module';
   controllers: [AuthController],
   providers: [
     AuthService,
+    TwoFactorService,
     JwtAccessStrategy,
     JwtRefreshStrategy,
     {
@@ -26,6 +28,6 @@ import { OtpModule } from '../otp/otp.module';
       useClass: RolesGuard,
     },
   ],
-  exports: [AuthService],
+  exports: [AuthService, TwoFactorService],
 })
 export class AuthModule {}

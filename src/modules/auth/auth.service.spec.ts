@@ -4,6 +4,8 @@ import { ConfigService } from '@nestjs/config';
 import { ConflictException, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
+import { TwoFactorService } from './two-factor.service';
+import { OtpService } from '../otp/otp.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { Role } from '@prisma/client';
@@ -19,6 +21,7 @@ describe('AuthService', () => {
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
     refreshToken: {
       findUnique: jest.fn(),
@@ -55,6 +58,16 @@ describe('AuthService', () => {
 
   const mockRedis = {};
 
+  const mockOtpService = {
+    requestOtp: jest.fn(),
+    verifyOtp: jest.fn(),
+  };
+
+  const mockTwoFactorService = {
+    verifyTotpCode: jest.fn(),
+    disable: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -63,6 +76,8 @@ describe('AuthService', () => {
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: REDIS_CLIENT, useValue: mockRedis },
+        { provide: OtpService, useValue: mockOtpService },
+        { provide: TwoFactorService, useValue: mockTwoFactorService },
       ],
     }).compile();
 
@@ -175,7 +190,7 @@ describe('AuthService', () => {
       );
     });
 
-    it('should successfully login with correct credentials', async () => {
+    it('should successfully login with correct credentials when 2FA is disabled', async () => {
       const hash = await bcrypt.hash('correct-password', 4);
       prisma.user.findFirst.mockResolvedValue({
         id: '1',
@@ -197,13 +212,85 @@ describe('AuthService', () => {
         { userAgent: 'test', ipAddress: '127.0.0.1' },
       );
 
-      expect(result).toHaveProperty('accessToken');
-      expect(result).toHaveProperty('refreshToken');
       expect(result.requiresTwoFactor).toBe(false);
 
-      if (!result.requiresTwoFactor) {
+      if (result.requiresTwoFactor === false) {
+        expect(result).toHaveProperty('accessToken');
+        expect(result).toHaveProperty('refreshToken');
         expect(result.user).not.toHaveProperty('passwordHash');
       }
+    });
+
+    it('should return an MFA token instead of full tokens when 2FA is enabled', async () => {
+      const hash = await bcrypt.hash('correct-password', 4);
+      prisma.user.findFirst.mockResolvedValue({
+        id: '1',
+        email: 'a@a.com',
+        passwordHash: hash,
+        isActive: true,
+        lockedUntil: null,
+        failedLoginAttempts: 0,
+        role: Role.STUDENT,
+        twoFactorEnabled: true,
+      });
+      jwtService.signAsync.mockResolvedValue('mfa-signed-token');
+
+      const result = await service.login(
+        { email: 'a@a.com', password: 'correct-password' } as any,
+        { userAgent: 'test', ipAddress: '127.0.0.1' },
+      );
+
+      expect(result.requiresTwoFactor).toBe(true);
+
+      if (result.requiresTwoFactor === true) {
+        expect(result.mfaToken).toBe('mfa-signed-token');
+      }
+
+      expect(prisma.session.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('verifyTwoFactorLogin', () => {
+    it('should throw UnauthorizedException for invalid or expired mfa token', async () => {
+      jwtService.verifyAsync.mockRejectedValue(new Error('invalid'));
+
+      await expect(
+        service.verifyTwoFactorLogin('bad-mfa-token', '123456', {}),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should throw UnauthorizedException for an incorrect 2FA code', async () => {
+      jwtService.verifyAsync.mockResolvedValue({ sub: '1', type: 'mfa' });
+      mockTwoFactorService.verifyTotpCode.mockResolvedValue(false);
+
+      await expect(
+        service.verifyTwoFactorLogin('valid-mfa-token', '000000', {}),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should issue tokens on successful 2FA verification', async () => {
+      jwtService.verifyAsync.mockResolvedValue({ sub: '1', type: 'mfa' });
+      mockTwoFactorService.verifyTotpCode.mockResolvedValue(true);
+      prisma.user.findUnique.mockResolvedValue({
+        id: '1',
+        email: 'a@a.com',
+        phone: null,
+        role: Role.STUDENT,
+        isActive: true,
+      });
+      jwtService.signAsync.mockResolvedValue('signed-token');
+      jwtService.decode.mockReturnValue({ exp: Math.floor(Date.now() / 1000) + 3600 });
+      prisma.refreshToken.create.mockResolvedValue({});
+      prisma.session.upsert.mockResolvedValue({});
+
+      const result = await service.verifyTwoFactorLogin('valid-mfa-token', '123456', {
+        userAgent: 'test',
+        ipAddress: '127.0.0.1',
+      });
+
+      expect(result).toHaveProperty('accessToken');
+      expect(result).toHaveProperty('refreshToken');
+      expect(result.user).not.toHaveProperty('passwordHash');
     });
   });
 

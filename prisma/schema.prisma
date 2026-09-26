@@ -36,6 +36,12 @@ enum TargetExam {
   OTHER
 }
 
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model User {
   id                  String        @id @default(uuid())
   email               String?       @unique
@@ -63,6 +69,7 @@ model User {
   refreshTokens       RefreshToken[]
   backupCodes         TwoFactorBackupCode[]
   studentProfile      StudentProfile?
+  teacherProfile      TeacherProfile?
 
   @@index([email])
   @@index([phone])
@@ -150,4 +157,37 @@ model StudentProfile {
 
   @@index([userId])
   @@map("student_profiles")
+}
+
+model TeacherProfile {
+  id                String         @id @default(uuid())
+  userId            String         @unique
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  fullName          String?
+  photoUrl          String?
+  bio               String?
+  qualifications    String?
+  experienceYears   Int?
+  subjects          String[]
+  videoIntroUrl     String?
+  youtubeUrl        String?
+  linkedinUrl       String?
+
+  approvalStatus    ApprovalStatus @default(PENDING)
+  rejectionReason   String?
+  approvedAt        DateTime?
+  approvedByUserId  String?
+
+  isVisible         Boolean        @default(true)
+
+  onboardingStep    Int            @default(0)
+  isOnboardingDone  Boolean        @default(false)
+
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([userId])
+  @@index([approvalStatus])
+  @@map("teacher_profiles")
 }

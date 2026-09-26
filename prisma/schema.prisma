@@ -44,6 +44,7 @@ enum ApprovalStatus {
 
 model User {
   id                  String        @id @default(uuid())
+  username            String?       @unique
   email               String?       @unique
   phone               String?       @unique
   passwordHash        String?
@@ -73,6 +74,7 @@ model User {
 
   @@index([email])
   @@index([phone])
+  @@index([username])
   @@map("users")
 }
 

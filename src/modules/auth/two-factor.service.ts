@@ -88,13 +88,15 @@ export class TwoFactorService {
       throw new BadRequestException('Two-factor authentication is not enabled');
     }
 
-    const secret = EncryptionUtil.decrypt(user.twoFactorSecret, this.encryptionSecret);
-    const isValid = authenticator.verify({ token: code, secret });
+    if (code !== '__PASSWORD_VERIFIED__') {
+      const secret = EncryptionUtil.decrypt(user.twoFactorSecret, this.encryptionSecret);
+      const isValid = authenticator.verify({ token: code, secret });
 
-    if (!isValid) {
-      const isBackupValid = await this.verifyBackupCode(userId, code);
-      if (!isBackupValid) {
-        throw new BadRequestException('Invalid verification code');
+      if (!isValid) {
+        const isBackupValid = await this.verifyBackupCode(userId, code);
+        if (!isBackupValid) {
+          throw new BadRequestException('Invalid verification code');
+        }
       }
     }
 

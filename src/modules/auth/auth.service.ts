@@ -33,6 +33,48 @@ interface DeviceMeta {
   ipAddress?: string;
 }
 
+export interface SanitizedUser {
+  id: string;
+  email: string | null;
+  phone: string | null;
+  role: Role;
+  provider: string;
+  providerId: string | null;
+  isEmailVerified: boolean;
+  isPhoneVerified: boolean;
+  isActive: boolean;
+  deletedAt: Date | null;
+  failedLoginAttempts: number;
+  lockedUntil: Date | null;
+  twoFactorEnabled: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type LoginResult =
+  | {
+      requiresTwoFactor: true;
+      mfaToken: string;
+      message: string;
+    }
+  | {
+      requiresTwoFactor: false;
+      user: SanitizedUser;
+      accessToken: string;
+      refreshToken: string;
+    };
+
+export interface TokenPair {
+  accessToken: string;
+  refreshToken: string;
+}
+
+export interface TwoFactorLoginResult {
+  user: SanitizedUser;
+  accessToken: string;
+  refreshToken: string;
+}
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -56,7 +98,7 @@ export class AuthService {
     );
   }
 
-  async register(dto: RegisterDto) {
+  async register(dto: RegisterDto): Promise<SanitizedUser> {
     if (!dto.email && !dto.phone) {
       throw new BadRequestException('Either email or phone is required');
     }
@@ -90,7 +132,7 @@ export class AuthService {
     return this.sanitizeUser(user);
   }
 
-async login(dto: LoginDto, meta: DeviceMeta) {
+  async login(dto: LoginDto, meta: DeviceMeta): Promise<LoginResult> {
     if (!dto.email && !dto.phone) {
       throw new BadRequestException('Either email or phone is required');
     }
@@ -167,7 +209,11 @@ async login(dto: LoginDto, meta: DeviceMeta) {
     };
   }
 
-  async verifyTwoFactorLogin(mfaToken: string, code: string, meta: DeviceMeta) {
+  async verifyTwoFactorLogin(
+    mfaToken: string,
+    code: string,
+    meta: DeviceMeta,
+  ): Promise<TwoFactorLoginResult> {
     let payload: JwtPayload;
 
     try {
@@ -224,7 +270,7 @@ async login(dto: LoginDto, meta: DeviceMeta) {
     }
   }
 
-  async refreshTokens(refreshToken: string) {
+  async refreshTokens(refreshToken: string): Promise<TokenPair> {
     let payload: JwtPayload;
 
     try {
@@ -340,9 +386,10 @@ async login(dto: LoginDto, meta: DeviceMeta) {
     ) {
       const user = await this.prisma.user.findFirst({
         where: {
-          OR: [dto.email ? { email: dto.email } : undefined, dto.phone ? { phone: dto.phone } : undefined].filter(
-            Boolean,
-          ) as any,
+          OR: [
+            dto.email ? { email: dto.email } : undefined,
+            dto.phone ? { phone: dto.phone } : undefined,
+          ].filter(Boolean) as any,
         },
       });
 
@@ -401,9 +448,10 @@ async login(dto: LoginDto, meta: DeviceMeta) {
 
     const user = await this.prisma.user.findFirst({
       where: {
-        OR: [dto.email ? { email: dto.email } : undefined, dto.phone ? { phone: dto.phone } : undefined].filter(
-          Boolean,
-        ) as any,
+        OR: [
+          dto.email ? { email: dto.email } : undefined,
+          dto.phone ? { phone: dto.phone } : undefined,
+        ].filter(Boolean) as any,
       },
     });
 
@@ -431,7 +479,12 @@ async login(dto: LoginDto, meta: DeviceMeta) {
 
   // ─── TOKEN / SESSION HELPERS ──────────────────────────────────────────
 
-  private async generateTokenPair(userId: string, email: string | null, phone: string | null, role: Role) {
+  private async generateTokenPair(
+    userId: string,
+    email: string | null,
+    phone: string | null,
+    role: Role,
+  ): Promise<TokenPair> {
     const jti = randomUUID();
 
     const accessPayload: JwtPayload = {
@@ -508,8 +561,8 @@ async login(dto: LoginDto, meta: DeviceMeta) {
     return createHash('sha256').update(token).digest('hex');
   }
 
-  private sanitizeUser(user: any) {
+  private sanitizeUser(user: any): SanitizedUser {
     const { passwordHash, twoFactorSecret, ...safeUser } = user;
-    return safeUser;
+    return safeUser as SanitizedUser;
   }
 }

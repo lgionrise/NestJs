@@ -5,7 +5,7 @@ export interface JwtPayload {
   email?: string;
   phone?: string;
   role: Role;
-  type: 'access' | 'refresh';
+  type: 'access' | 'refresh' | 'mfa';
   jti?: string;
 }
 

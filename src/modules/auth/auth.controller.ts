@@ -173,14 +173,7 @@ export class AuthController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: TwoFactorDisableDto,
   ) {
-    // Verify current password before allowing 2FA disable (defense in depth)
-    await this.authService.changePassword(user.id, {
-      currentPassword: dto.password,
-      newPassword: dto.password,
-    }).catch(() => {
-      throw new UnauthorizedException('Incorrect password');
-    });
-    const result = await this.twoFactorService.disable(user.id, '');
+    const result = await this.authService.disableTwoFactorWithPassword(user.id, dto.password);
     return { success: true, data: result };
   }
 }

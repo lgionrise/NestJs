@@ -20,6 +20,22 @@ enum AuthProvider {
   FACEBOOK
 }
 
+enum Language {
+  ENGLISH
+  HINDI
+  HINGLISH
+  REGIONAL
+}
+
+enum TargetExam {
+  JEE_MAIN
+  JEE_ADVANCED
+  NEET
+  BOARDS_10
+  BOARDS_12
+  OTHER
+}
+
 model User {
   id                  String        @id @default(uuid())
   email               String?       @unique
@@ -32,6 +48,7 @@ model User {
   isEmailVerified     Boolean       @default(false)
   isPhoneVerified     Boolean       @default(false)
   isActive            Boolean       @default(true)
+  deletedAt           DateTime?
 
   failedLoginAttempts Int           @default(0)
   lockedUntil         DateTime?
@@ -44,6 +61,8 @@ model User {
 
   sessions            Session[]
   refreshTokens       RefreshToken[]
+  backupCodes         TwoFactorBackupCode[]
+  studentProfile      StudentProfile?
 
   @@index([email])
   @@index([phone])
@@ -86,4 +105,49 @@ model Session {
 
   @@index([userId])
   @@map("sessions")
+}
+
+model TwoFactorBackupCode {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  isUsed    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  usedAt    DateTime?
+
+  @@index([userId])
+  @@map("two_factor_backup_codes")
+}
+
+model StudentProfile {
+  id                String      @id @default(uuid())
+  userId            String      @unique
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  fullName          String?
+  photoUrl          String?
+  className         String?
+  targetExam        TargetExam?
+  language          Language    @default(ENGLISH)
+  city              String?
+  state             String?
+  country           String?
+
+  dateOfBirth       DateTime?
+  guardianName      String?
+  guardianPhone     String?
+  schoolName        String?
+
+  onboardingStep    Int         @default(0)
+  isOnboardingDone  Boolean     @default(false)
+
+  notificationPrefs Json?
+  privacySettings   Json?
+
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@index([userId])
+  @@map("student_profiles")
 }

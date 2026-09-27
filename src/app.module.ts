@@ -12,6 +12,7 @@ import { StudentModule } from './modules/student/student.module';
 import { TeacherModule } from './modules/teacher/teacher.module';
 import { CourseModule } from './modules/course/course.module';
 import { BatchModule } from './modules/batch/batch.module';
+import { SeedModule } from './modules/seed/seed.module';
 import validationSchema from './config/env.validation';
 
 @Module({
@@ -37,6 +38,7 @@ import validationSchema from './config/env.validation';
     TeacherModule,
     CourseModule,
     BatchModule,
+    SeedModule,
   ],
   providers: [
     {

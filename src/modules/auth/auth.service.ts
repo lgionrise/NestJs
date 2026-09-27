@@ -35,6 +35,7 @@ interface DeviceMeta {
 
 export interface SanitizedUser {
   id: string;
+  username: string | null;
   email: string | null;
   phone: string | null;
   role: Role;
@@ -133,8 +134,8 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, meta: DeviceMeta): Promise<LoginResult> {
-    if (!dto.email && !dto.phone) {
-      throw new BadRequestException('Either email or phone is required');
+    if (!dto.email && !dto.phone && !dto.username) {
+      throw new BadRequestException('Email, phone or username is required');
     }
 
     const user = await this.prisma.user.findFirst({
@@ -142,6 +143,7 @@ export class AuthService {
         OR: [
           dto.email ? { email: dto.email } : undefined,
           dto.phone ? { phone: dto.phone } : undefined,
+          dto.username ? { username: dto.username } : undefined,
         ].filter(Boolean) as any,
       },
     });
@@ -394,7 +396,6 @@ export class AuthService {
       });
 
       if (dto.purpose === OtpPurpose.PASSWORD_RESET && !user) {
-        // Do not reveal whether account exists — respond identically either way.
         return { message: 'If an account exists, an OTP has been sent.', expiresInSeconds: 300 };
       }
     }

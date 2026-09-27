@@ -11,6 +11,8 @@ import {
 } from 'class-validator';
 import { Role } from '@prisma/client';
 
+const PUBLIC_REGISTERABLE_ROLES = [Role.STUDENT, Role.TEACHER] as const;
+
 export class RegisterDto {
   @ValidateIf((o) => !o.phone)
   @IsEmail({}, { message: 'Please provide a valid email address' })
@@ -30,6 +32,8 @@ export class RegisterDto {
   password: string;
 
   @IsOptional()
-  @IsEnum(Role, { message: 'Invalid role specified' })
-  role?: Role;
+  @IsEnum(PUBLIC_REGISTERABLE_ROLES, {
+    message: 'Role must be either STUDENT or TEACHER',
+  })
+  role?: (typeof PUBLIC_REGISTERABLE_ROLES)[number];
 }

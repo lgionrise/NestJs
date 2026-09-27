@@ -42,6 +42,30 @@ enum ApprovalStatus {
   REJECTED
 }
 
+enum CourseStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum BatchStatus {
+  DRAFT
+  UPCOMING
+  ONGOING
+  COMPLETED
+  ARCHIVED
+}
+
+enum WeekDay {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
 model User {
   id                  String        @id @default(uuid())
   username            String?       @unique
@@ -71,6 +95,8 @@ model User {
   backupCodes         TwoFactorBackupCode[]
   studentProfile      StudentProfile?
   teacherProfile      TeacherProfile?
+  createdCourses      Course[]      @relation("CourseCreatedBy")
+  teachingBatches     Batch[]       @relation("BatchTeacher")
 
   @@index([email])
   @@index([phone])
@@ -192,4 +218,97 @@ model TeacherProfile {
   @@index([userId])
   @@index([approvalStatus])
   @@map("teacher_profiles")
+}
+
+model Course {
+  id              String        @id @default(uuid())
+  title           String
+  slug            String        @unique
+  description     String
+  targetExam      TargetExam
+  className       String
+
+  status          CourseStatus  @default(DRAFT)
+
+  createdByUserId String
+  createdBy       User          @relation("CourseCreatedBy", fields: [createdByUserId], references: [id])
+
+  chapters        Chapter[]
+  batches         Batch[]
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([targetExam])
+  @@index([status])
+  @@map("courses")
+}
+
+model Chapter {
+  id          String   @id @default(uuid())
+  courseId    String
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  title       String
+  orderIndex  Int
+  topics      String[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([courseId])
+  @@map("chapters")
+}
+
+model Batch {
+  id                String      @id @default(uuid())
+  courseId          String
+  course            Course      @relation(fields: [courseId], references: [id])
+
+  name              String
+  slug              String      @unique
+  description       String?
+
+  teacherUserId     String
+  teacher           User        @relation("BatchTeacher", fields: [teacherUserId], references: [id])
+
+  language          Language    @default(ENGLISH)
+  status            BatchStatus @default(DRAFT)
+
+  priceInPaise      Int
+  discountedPriceInPaise Int?
+  validityDays      Int
+
+  startDate         DateTime
+  endDate           DateTime?
+
+  maxStudents       Int?
+
+  isFeatured        Boolean     @default(false)
+
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  schedules         BatchSchedule[]
+
+  @@index([courseId])
+  @@index([teacherUserId])
+  @@index([status])
+  @@map("batches")
+}
+
+model BatchSchedule {
+  id        String   @id @default(uuid())
+  batchId   String
+  batch     Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  dayOfWeek WeekDay
+  startTime String   // "HH:mm" 24-hour format
+  endTime   String   // "HH:mm" 24-hour format
+  subject   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([batchId])
+  @@map("batch_schedules")
 }

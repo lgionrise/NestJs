@@ -10,6 +10,8 @@ import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { StudentModule } from './modules/student/student.module';
 import { TeacherModule } from './modules/teacher/teacher.module';
+import { CourseModule } from './modules/course/course.module';
+import { BatchModule } from './modules/batch/batch.module';
 import validationSchema from './config/env.validation';
 
 @Module({
@@ -33,6 +35,8 @@ import validationSchema from './config/env.validation';
     HealthModule,
     StudentModule,
     TeacherModule,
+    CourseModule,
+    BatchModule,
   ],
   providers: [
     {

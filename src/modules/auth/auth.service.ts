@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { randomUUID, createHash } from 'crypto';
 import Redis from 'ioredis';
+import { BrevoEmailProvider } from '../otp/providers/brevo-email.provider';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { TwoFactorService } from './two-factor.service';
@@ -89,6 +90,7 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly otpService: OtpService,
     private readonly twoFactorService: TwoFactorService,
+    private readonly brevoEmailProvider: BrevoEmailProvider,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.saltRounds = this.configService.get<number>('BCRYPT_SALT_ROUNDS', 12);
@@ -129,6 +131,11 @@ export class AuthService {
     });
 
     this.logger.log(`New user registered: ${user.id} (${user.role})`);
+    if (user.email) {
+      this.brevoEmailProvider.sendWelcomeEmail(user.email, user.email).catch(() => {
+        this.logger.warn(`Welcome email failed to send for ${user.id}`);
+      });
+    }
 
     return this.sanitizeUser(user);
   }
@@ -201,6 +208,13 @@ export class AuthService {
 
     const tokens = await this.generateTokenPair(user.id, user.email, user.phone, user.role);
     await this.createSession(user.id, dto.deviceId, meta);
+    if (user.email) {
+      this.brevoEmailProvider
+        .sendNewLoginAlert(user.email, { ipAddress: meta.ipAddress, userAgent: meta.userAgent, time: new Date() })
+        .catch(() => {
+          this.logger.warn(`Login alert email failed to send for ${user.id}`);
+        });
+    }
 
     this.logger.log(`User logged in: ${user.id}`);
 

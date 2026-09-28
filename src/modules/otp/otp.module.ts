@@ -6,6 +6,6 @@ import { ConsoleSmsProvider } from './providers/console-sms.provider';
 
 @Module({
   providers: [OtpService, BrevoEmailProvider, ConsoleEmailProvider, ConsoleSmsProvider],
-  exports: [OtpService],
+  exports: [OtpService, BrevoEmailProvider],
 })
 export class OtpModule {}
